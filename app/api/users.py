@@ -85,7 +85,9 @@ def update_user(id):
 @token_auth.login_required
 def follow_user(id):
     current = token_auth.current_user()
-    user = db.session.get(User, id)
+    user = db.get_or_404(User, id)
+    if user == current:
+        return bad_request('you cannot follow yourself')
     current.follow(user)
     db.session.commit()
     return {'following': True, 'user': user.to_dict()}
@@ -98,4 +100,5 @@ def unfollow_user(id):
     if user == token_auth.current_user():
         return bad_request('you cannot unfollow yourself')
     token_auth.current_user().unfollow(user)
+    db.session.commit()
     return {'following': False}
