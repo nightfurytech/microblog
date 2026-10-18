@@ -12,6 +12,7 @@ def get_post(id):
 
 
 @bp.route('/users/<int:id>/posts', methods=['GET'])
+@token_auth.login_required
 def get_user_posts(id):
     user = db.get_or_404(User, id)
     page = request.args.get('page', 1, type=int)
