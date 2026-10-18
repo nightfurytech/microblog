@@ -306,7 +306,14 @@ class Post(PaginatedAPIMixin, SearchableMixin, db.Model):
             'language': self.language,
             'timestamp': self.timestamp.replace(
                 tzinfo=timezone.utc).isoformat(),
-            'author': self.author.to_dict(include_email=True),
+            'author': {
+                'id': self.author.id,
+                'username': self.author.username,
+                '_links': {
+                    'self': url_for('api.get_user', id=self.author.id),
+                    'avatar': self.author.avatar(48),
+                },
+            },
             '_links': {
                 'self': url_for('api.get_post', id=self.id),
                 'author': url_for('api.get_user', id=self.user_id)

@@ -16,7 +16,7 @@ def get_post(id):
 def get_user_posts(id):
     user = db.get_or_404(User, id)
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 10, type=int)
+    per_page = min(request.args.get('per_page', 10, type=int), 100)
     query = user.posts.select().order_by(Post.timestamp.desc())
     return Post.to_collection_dict(query, page, per_page,
                                    'api.get_user_posts', id=id)
