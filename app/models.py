@@ -284,7 +284,7 @@ def load_user(id):
     return db.session.get(User, int(id))
 
 
-class Post(SearchableMixin, db.Model):
+class Post(PaginatedAPIMixin, SearchableMixin, db.Model):
     __searchable__ = ['body']
     id: so.Mapped[int] = so.mapped_column(primary_key=True)
     body: so.Mapped[str] = so.mapped_column(sa.String(140))
@@ -298,6 +298,21 @@ class Post(SearchableMixin, db.Model):
 
     def __repr__(self):
         return '<Post {}>'.format(self.body)
+
+    def to_dict(self):
+        data = {
+            'id': self.id,
+            'body': self.body,
+            'language': self.language,
+            'timestamp': self.timestamp.replace(
+                tzinfo=timezone.utc).isoformat(),
+            'author': self.author.to_dict(include_email=True),
+            '_links': {
+                'self': url_for('api.get_post', id=self.id),
+                'author': url_for('api.get_user', id=self.user_id)
+            }
+        }
+        return data
 
 
 class Message(db.Model):
