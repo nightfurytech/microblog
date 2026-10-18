@@ -54,7 +54,7 @@ def index():
 @bp.route('/explore')
 @login_required
 def explore():
-    page = request.args.get('page', 1, type=int)
+    page = max(request.args.get('page', 1, type=int) - 1, 1)
     query = sa.select(Post).order_by(Post.timestamp.desc())
     posts = db.paginate(query, page=page,
                         per_page=current_app.config['POSTS_PER_PAGE'],
