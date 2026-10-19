@@ -128,8 +128,10 @@ class APIPostsCase(unittest.TestCase):
         db.session.commit()
         return {'Authorization': f'Bearer {token}'}
 
-    def _add_post(self, user, body):
-        db.session.add(Post(body=body, author=user))
+    def _add_post(self, user, body, minutes_ago=0):
+        timestamp = datetime.now(timezone.utc) - timedelta(
+            minutes=minutes_ago)
+        db.session.add(Post(body=body, author=user, timestamp=timestamp))
         db.session.commit()
 
     def test_get_post(self):
@@ -146,49 +148,67 @@ class APIPostsCase(unittest.TestCase):
         self._add_post(user, 'hello world')
         post = db.session.scalars(sa.select(Post)).first()
         response = self.client.get(f'/api/posts/{post.id}')
-        self.assertTrue(response.status_code)
+        self.assertEqual(response.status_code, 401)
 
-    def test_user_posts_are_public(self):
+    def test_user_posts_require_auth(self):
         user = self._create_user('john')
         self._add_post(user, 'first')
-        self._add_post(user, 'second')
-        self._add_post(user, 'third')
         response = self.client.get(f'/api/users/{user.id}/posts')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.get_json()['items']), 3)
+        self.assertEqual(response.status_code, 401)
 
-    def test_user_posts_include_author_details(self):
+    def test_user_posts_unknown_user(self):
+        user = self._create_user('john')
+        response = self.client.get('/api/users/999/posts',
+                                   headers=self._auth_headers(user))
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_posts_author_has_no_email(self):
         user = self._create_user('john')
         self._add_post(user, 'hello world')
         response = self.client.get(f'/api/users/{user.id}/posts',
                                    headers=self._auth_headers(user))
         json = response.get_json()
         self.assertEqual(json['items'][0]['author']['username'], 'john')
-        self.assertIn('email', json['items'][0]['author'])
+        self.assertNotIn('email', json['items'][0]['author'])
 
     def test_user_posts_pagination(self):
         user = self._create_user('john')
-        for i in range(15):
-            self._add_post(user, f'post {i}')
+        for i in range(12):
+            self._add_post(user, f'post {i}', minutes_ago=i)
         response = self.client.get(
-            f'/api/users/{user.id}/posts?per_page=10',
+            f'/api/users/{user.id}/posts?per_page=5&page=2',
             headers=self._auth_headers(user))
         json = response.get_json()
-        self.assertEqual(len(json['items']), 10)
-        self.assertEqual(json['_meta']['total_items'], 15)
+        bodies = [item['body'] for item in json['items']]
+        self.assertEqual(bodies, ['post 5', 'post 6', 'post 7',
+                                  'post 8', 'post 9'])
+        self.assertEqual(json['_meta']['total_pages'], 3)
+        self.assertIsNotNone(json['_links']['next'])
+        self.assertIsNotNone(json['_links']['prev'])
+
+    def test_user_posts_per_page_is_capped(self):
+        user = self._create_user('john')
+        self._add_post(user, 'hello world')
+        response = self.client.get(
+            f'/api/users/{user.id}/posts?per_page=1000',
+            headers=self._auth_headers(user))
+        self.assertEqual(response.get_json()['_meta']['per_page'], 100)
 
     def test_feed(self):
         john = self._create_user('john')
         susan = self._create_user('susan')
+        mary = self._create_user('mary')
         john.follow(susan)
         db.session.commit()
-        self._add_post(susan, 'susan 1')
-        self._add_post(susan, 'susan 2')
-        self._add_post(john, 'john 1')
+        self._add_post(susan, 'susan 1', minutes_ago=10)
+        self._add_post(john, 'john 1', minutes_ago=5)
+        self._add_post(mary, 'mary 1', minutes_ago=2)
+        self._add_post(susan, 'susan 2', minutes_ago=1)
         response = self.client.get('/api/posts/feed',
                                    headers=self._auth_headers(john))
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(len(response.get_json()['items']) >= 1)
+        bodies = [item['body'] for item in response.get_json()['items']]
+        self.assertEqual(bodies, ['susan 2', 'john 1', 'susan 1'])
 
 
 if __name__ == '__main__':
