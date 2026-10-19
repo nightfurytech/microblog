@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 from datetime import datetime, timezone, timedelta
 import unittest
+import sqlalchemy as sa
 from app import create_app, db
 from app.models import User, Post
 from config import Config
@@ -100,6 +101,94 @@ class UserModelCase(unittest.TestCase):
         self.assertEqual(f2, [p2, p3])
         self.assertEqual(f3, [p3, p4])
         self.assertEqual(f4, [p4])
+
+
+class APIPostsCase(unittest.TestCase):
+    def setUp(self):
+        self.app = create_app(TestConfig)
+        self.app_context = self.app.app_context()
+        self.app_context.push()
+        db.create_all()
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        db.session.remove()
+        db.drop_all()
+        self.app_context.pop()
+
+    def _create_user(self, username):
+        user = User(username=username, email=f'{username}@example.com')
+        user.set_password('cat')
+        db.session.add(user)
+        db.session.commit()
+        return user
+
+    def _auth_headers(self, user):
+        token = user.get_token()
+        db.session.commit()
+        return {'Authorization': f'Bearer {token}'}
+
+    def _add_post(self, user, body):
+        db.session.add(Post(body=body, author=user))
+        db.session.commit()
+
+    def test_get_post(self):
+        user = self._create_user('john')
+        self._add_post(user, 'hello world')
+        post = db.session.scalars(sa.select(Post)).first()
+        response = self.client.get(f'/api/posts/{post.id}',
+                                   headers=self._auth_headers(user))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['body'], 'hello world')
+
+    def test_get_post_requires_auth(self):
+        user = self._create_user('john')
+        self._add_post(user, 'hello world')
+        post = db.session.scalars(sa.select(Post)).first()
+        response = self.client.get(f'/api/posts/{post.id}')
+        self.assertTrue(response.status_code)
+
+    def test_user_posts_are_public(self):
+        user = self._create_user('john')
+        self._add_post(user, 'first')
+        self._add_post(user, 'second')
+        self._add_post(user, 'third')
+        response = self.client.get(f'/api/users/{user.id}/posts')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.get_json()['items']), 3)
+
+    def test_user_posts_include_author_details(self):
+        user = self._create_user('john')
+        self._add_post(user, 'hello world')
+        response = self.client.get(f'/api/users/{user.id}/posts',
+                                   headers=self._auth_headers(user))
+        json = response.get_json()
+        self.assertEqual(json['items'][0]['author']['username'], 'john')
+        self.assertIn('email', json['items'][0]['author'])
+
+    def test_user_posts_pagination(self):
+        user = self._create_user('john')
+        for i in range(15):
+            self._add_post(user, f'post {i}')
+        response = self.client.get(
+            f'/api/users/{user.id}/posts?per_page=10',
+            headers=self._auth_headers(user))
+        json = response.get_json()
+        self.assertEqual(len(json['items']), 10)
+        self.assertEqual(json['_meta']['total_items'], 15)
+
+    def test_feed(self):
+        john = self._create_user('john')
+        susan = self._create_user('susan')
+        john.follow(susan)
+        db.session.commit()
+        self._add_post(susan, 'susan 1')
+        self._add_post(susan, 'susan 2')
+        self._add_post(john, 'john 1')
+        response = self.client.get('/api/posts/feed',
+                                   headers=self._auth_headers(john))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(len(response.get_json()['items']) >= 1)
 
 
 if __name__ == '__main__':
