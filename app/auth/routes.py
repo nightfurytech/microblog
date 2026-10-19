@@ -8,7 +8,7 @@ from app.auth import bp
 from app.auth.forms import LoginForm, RegistrationForm, \
     ResetPasswordRequestForm, ResetPasswordForm
 from app.models import User
-from app.auth.email import send_password_reset_email
+from app.services.mailer import send_password_reset_email
 
 
 @bp.route('/login', methods=['GET', 'POST'])
